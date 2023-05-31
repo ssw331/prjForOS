@@ -2,12 +2,7 @@ import time
 import queue
 import threading
 import PyQt6.QtCore as QtC
-from PyQt6.QtCore import QThread, QTimer
-
-import ui_elevator as ui
-import Main_Window as M_w
-
-Lock_1 = threading.Lock()
+from PyQt6.QtCore import QThread
 
 INF = 999
 maxFloor = 20  # 最高楼层
@@ -56,9 +51,12 @@ def isup_outside(elevator_, index):  # consumer
             elevator_.nowFloor += 1
             print(elevator_.nowFloor)
             elevator_.chooseToEmit(index)
+        elevator().shareMessage.discard(elevator_.nowFloor)
+        elevator_.isOpen(index)
+        time.sleep(freshTime * 10)
+        isclose_outside(elevator_, index)
         elevator_.emitFloor()
         elevator_.upDestination.get()
-        time.sleep(freshTime * 5)
         elevator_.status = upGoing
     elevator_.status = static
     elevator_.emitWay(index, elevator_.status)
@@ -79,9 +77,12 @@ def isdown_outside(elevator_, index):  # consumer
             elevator_.nowFloor -= 1
             print(elevator_.nowFloor)
             elevator_.chooseToEmit(index)
+        elevator().shareMessage.discard(elevator_.nowFloor)
+        elevator_.isOpen(index)
+        time.sleep(freshTime * 10)
+        isclose_outside(elevator_, index)
         elevator_.emitFloor()
         elevator_.downDestination.get()
-        time.sleep(freshTime * 5)
         elevator_.status = downGoing
     elevator_.status = static
     elevator_.emitWay(index, elevator_.status)
@@ -90,7 +91,8 @@ def isdown_outside(elevator_, index):  # consumer
         thread = threading.Thread(target=isup_outside, args=[elevator_, index])
         thread.start()
         thread.join()
-        
+
+
 def isclose_outside(elevator_, index):
     elevator_.statusDoor = closeDoor
     print("in close")
@@ -104,7 +106,7 @@ def isclose_outside(elevator_, index):
         elevator_.door_4.emit("关门")
     elif index == 5:
         elevator_.door_5.emit("关门")
-    time.sleep(freshTime * 5)
+    time.sleep(freshTime * 10)
     if index == 1:
         elevator_.door_1.emit("待机")
     elif index == 2:
@@ -118,7 +120,6 @@ def isclose_outside(elevator_, index):
 
 
 class elevator(QThread):
-    timer = QTimer()
 
     floor_1 = QtC.pyqtSignal(int, name="floor_1")
     floor_2 = QtC.pyqtSignal(int, name="floor_2")
@@ -190,7 +191,7 @@ class elevator(QThread):
 
     def emitFloor(self):
         self.switch.emit(self.nowFloor)
-        
+
     def emitWay(self, index, how):
         if index == 1:
             if how == upGoing:
@@ -257,46 +258,3 @@ class elevator(QThread):
     def isClose(self, index):
         thread = threading.Thread(target=isclose_outside, args=[self, index])
         thread.start()
-
-
-arrayElevator = [elevator() for _ in range(5)]
-# 一些想法：
-# 电梯本身是互斥资源，但是互斥量为5
-mutexElevateSrc = 5
-# 但对于单个电梯自身也是互斥的
-mutexEach = 1
-
-dist = INF
-
-
-# 外部用户请求电梯:
-
-def iWantAElevator(howtogo, outguestfloor):  # 请求一部电梯  请求时附带上/下行参数——这个参数可以考虑精简 producer
-    global dist
-    bestElevator = elevator()
-    # 针对从同一楼层发出的请求，电梯都可以接收
-    # 但是会优先调度距离发起请求的楼层最近的电梯
-    # 前提是无故障，即未进入warning状态
-    # 那么如果5台都满足以上调度条件，则如何选择电梯？
-    # 1. 人数非满
-    # 2. 距离最近 √
-    # 换句话说，调度的条件有3：
-    Lock_1.acquire()
-    for E in arrayElevator:
-        if not E.status == warning:
-            if E.nowFloor < outguestfloor and E.status == upGoing and howtogo == wantUp:
-                # 对于当前电梯执行的任务出现优先级调度
-                # 优先度根据电梯与请求楼层的距离来定义，越小则优先级越高
-                if dist > outguestfloor - E.nowFloor:  # 循环迭代计算最小者
-                    dist = outguestfloor - E.nowFloor
-                    bestElevator = E
-            if E.nowFloor > outguestfloor and E.status == downGoing and howtogo == wantDown:
-                if dist > outguestfloor - E.nowFloor:  # 循环迭代计算最小者
-                    dist = outguestfloor - E.nowFloor
-                    bestElevator = E
-    Lock_1.release()
-    bestElevator.start()
-    if bestElevator.status == static:
-        bestElevator.toFloor(outguestfloor)  # 决定最优电梯后，调度该电梯 同时切换电梯状态
-    else:
-        bestElevator.renewQueue(outguestfloor)

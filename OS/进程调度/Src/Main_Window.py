@@ -197,6 +197,9 @@ class M_Window(QtW.QMainWindow):
                 self.E[index - 1].renewQueue(20)
             for btn in self.display[20 - 1]:
                 btn.setEnabled(False)
+            if self.E[index - 1].nowFloor == 20:
+                for btn in self.display[20 - 1]:
+                    btn.setEnabled(True)
         else:
             index = int(p[0]) // 20 + 1
             if self.E[index - 1].status == static:
@@ -205,7 +208,11 @@ class M_Window(QtW.QMainWindow):
                 self.E[index - 1].renewQueue(int(p[0]) - (index - 1) * 20)
             for btn in self.display[int(p[0]) - (index - 1) * 20 - 1]:
                 btn.setEnabled(False)
-        if not self.E[index - 1].started:
+            if self.E[index - 1].nowFloor == int(p[0]) - (index - 1) * 20:
+                for btn in self.display[int(p[0]) - (index - 1) * 20 - 1]:
+                    btn.setEnabled(True)
+        # 下面两行是没啥用的，可以删去
+        if (not self.E[index - 1].started) or self.E[index - 1].status == static:
             self.E[index - 1].start()
         # self.timer.start(500)
         if self.E[index - 1].status == upGoing:
@@ -213,6 +220,7 @@ class M_Window(QtW.QMainWindow):
         elif self.E[index - 1].status == downGoing:
             print("downgoing\n")
 
+    # 外部用户请求电梯:
     def needAElevator(self):
         dist = 999
         bestElevator = 1
@@ -227,15 +235,15 @@ class M_Window(QtW.QMainWindow):
         # 换句话说，调度的条件有3：
         for i in range(5):
             if not self.E[i].status == warning:
-                if self.E[i].nowFloor < int(self.ui.spinBox.cleanText()) and self.E[i].status == upGoing and p[
-                    0] == '0':
+                if self.E[i].nowFloor < int(self.ui.spinBox.cleanText()) and self.E[i].status == upGoing and p[0] == \
+                        '0':
                     # 对于当前电梯执行的任务出现优先级调度
                     # 优先度根据电梯与请求楼层的距离来定义，越小则优先级越高
                     if dist > abs(int(self.ui.spinBox.cleanText()) - self.E[i].nowFloor):  # 循环迭代计算最小者
                         dist = abs(int(self.ui.spinBox.cleanText()) - self.E[i].nowFloor)
                         bestElevator = i
-                elif self.E[i].nowFloor > int(self.ui.spinBox.cleanText()) and self.E[i].status == downGoing and p[
-                    0] == '116':
+                elif self.E[i].nowFloor > int(self.ui.spinBox.cleanText()) and self.E[i].status == downGoing and p[0] \
+                        == '116':
                     if dist > abs(int(self.ui.spinBox.cleanText()) - self.E[i].nowFloor):  # 循环迭代计算最小者
                         dist = abs(int(self.ui.spinBox.cleanText()) - self.E[i].nowFloor)
                         bestElevator = i
@@ -248,7 +256,8 @@ class M_Window(QtW.QMainWindow):
         if not self.E[bestElevator].started:
             self.E[bestElevator].start()
         if self.E[bestElevator].status == static:
-            self.E[bestElevator].toFloor(int(self.ui.spinBox.cleanText()), bestElevator + 1)  # 决定最优电梯后，调度该电梯 同时切换电梯状态
+            self.E[bestElevator].toFloor(int(self.ui.spinBox.cleanText()), bestElevator + 1)
+            # 决定最优电梯后，调度该电梯 同时切换电梯状态
         else:
             self.E[bestElevator].renewQueue(int(self.ui.spinBox.cleanText()))
 
@@ -258,6 +267,8 @@ class M_Window(QtW.QMainWindow):
         i = int((int(p[0]) - 103) / 3)
         for btn in self.floors[i]:
             btn.setEnabled(False)
+        self.btn_open[i].setEnabled(False)
+        self.btn_close[i].setEnabled(False)
         print(i)
         self.E[i].isWarning(i + 1)
 
@@ -266,9 +277,10 @@ class M_Window(QtW.QMainWindow):
         p = parse.parse("pushButton_{}", sender.objectName())
         i = int((int(p[0]) - 101) / 3)
         print(i)
-        for btn in self.floors[i]:
-            btn.setEnabled(False)
-        self.E[i].isOpen(i + 1)
+        if self.E[i].status == static:
+            for btn in self.floors[i]:
+                btn.setEnabled(False)
+            self.E[i].isOpen(i + 1)
 
     def closeDoor(self):
         sender = self.sender()
