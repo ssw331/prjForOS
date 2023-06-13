@@ -14,14 +14,12 @@ FAT_FILEEND = -1
 
 
 class FCB:
-    def __init__(self, name, access_time, update_time, length, address=None):
+    def __init__(self, name, create_time, update_time, length, address=None):
         self.name = name
         self.address = address  # 记录在FAT的起始位置
-        self.access_time = access_time
+        self.create_time = create_time
         self.update_time = update_time
         self.length = length
-
-    pass
 
 
 class Disk:
@@ -35,7 +33,6 @@ class freeSpace:
     def __init__(self):
         self.map = bitarray.bitarray(BLOCK_NUM)
         self.map.setall(FREE)
-    pass
 
 
 class FAT:
@@ -45,8 +42,6 @@ class FAT:
         for i in range(BLOCK_NUM):
             self.table.append(FAT_AVAILABLE)
 
-    pass
-
 
 class folder:  # 只向下
     def __init__(self, name: str, create_time):
@@ -55,12 +50,13 @@ class folder:  # 只向下
         self.FCB_children = []  # 记录文件夹内文件
         self.create_time = self.update_time = create_time
 
+    def size(self):
+        return len(self.folder_children) + len(self.FCB_children)
+
 
 class file_content:
     def __init__(self):
         self.root = folder("/", datetime.now())
-
-    pass
 
 
 class fileSystem:
@@ -90,7 +86,6 @@ class fileSystem:
             if new_name == every.name:
                 new_name += "(1)"
         parent_folder.FCB_children.append(FCB(new_name, create_time, create_time, 0))
-        pass
 
     def open_file(self, fcb):
         if fcb.address is None:
@@ -102,31 +97,48 @@ class fileSystem:
     def write_close(self, fcb, new_data):
         cursor = fcb.address
         fcb.length = len(new_data)
+        cover_over = 0
 
         while len(new_data) != 0:
-            n_cursor = self.find_free()
+            n_cursor = self.find_free()  # 查找可用空间
             if n_cursor == -1:  # 不存在空闲空间
                 raise AssertionError("空间不足！")
-            if cursor is None:  # 建立新的文件索引
-                fcb.address = n_cursor
+            if cursor is None:  # fcb不存在数据，建立新的文件索引
+                fcb.address = n_cursor  # 令可用空间作为start
                 self.freeSpace.map[n_cursor] = OCCUPIED
                 self.FAT.table[n_cursor] = FAT_FILEEND
-                self.Disk.disk[n_cursor] = new_data[:BLOCK_SIZE]
-            elif cursor != FAT_FILEEND:  # 覆盖原本的块
-                n_cursor = self.FAT.table[cursor]
-                self.Disk.disk[cursor] = new_data[:BLOCK_SIZE]
-            elif cursor == FAT_FILEEND:  # 填充到新的块
-                self.FAT.table[n_cursor] = cursor
-                self.freeSpace.map[n_cursor] = OCCUPIED
-                self.FAT.table[n_cursor] = FAT_FILEEND
-                self.Disk.disk[n_cursor] = new_data[:BLOCK_SIZE]
-            new_data = new_data[BLOCK_SIZE:]
-            if cursor == FAT_FILEEND:
-                cursor = FAT_FILEEND
+                self.Disk.disk[n_cursor] = new_data[:BLOCK_SIZE]  # 此时cursor=None, n_cursor = start
+                new_data = new_data[BLOCK_SIZE:]
+            else:  # fcb存在数据
+                if not cover_over:
+                    self.Disk.disk[cursor] = new_data[:BLOCK_SIZE]  # 覆盖
+                    new_data = new_data[BLOCK_SIZE:]
+                if self.FAT.table[cursor] == FAT_FILEEND:  # 覆盖结束
+                    cover_over = 1
+                else:  # 覆盖未结束
+                    cover_over = 0
+                if cover_over and len(new_data):  # 覆盖结束开始使用新块
+                    self.FAT.table[n_cursor] = FAT_FILEEND
+                    self.freeSpace.map[n_cursor] = OCCUPIED
+                    self.FAT.table[cursor] = n_cursor
+                    self.Disk.disk[n_cursor] = new_data[:BLOCK_SIZE]
+                    new_data = new_data[BLOCK_SIZE:]
+                elif not cover_over:  # 覆盖未结束 更新n_cursor
+                    n_cursor = self.FAT.table[cursor]
+
+            if not len(new_data) and not cover_over:  # 覆盖未结束但已写入完毕，将剩余磁盘置空
+                temp_cursor = self.FAT.table[cursor]
+                self.FAT.table[cursor] = FAT_FILEEND
+                while self.FAT.table[temp_cursor] >= FAT_FILEEND and temp_cursor != FAT_FILEEND:
+                    t_c = self.FAT.table[temp_cursor]
+                    self.FAT.table[temp_cursor] = FAT_AVAILABLE
+                    self.freeSpace.map[temp_cursor] = FREE
+                    self.Disk.disk[temp_cursor] = ""
+                    temp_cursor = t_c
             else:
                 cursor = n_cursor
 
-            fcb.update_time = datetime.now()
+        fcb.update_time = datetime.now()
 
     def open_read(self, fcb):
         cursor = self.open_file(fcb)
@@ -168,7 +180,6 @@ class fileSystem:
 
         p_folder.folder_children.append(folder(name, create_time))
         p_folder.update_time = create_time
-        pass
 
     def delete_folder(self, deleted_folder: folder):
         for each in deleted_folder.folder_children:
@@ -177,7 +188,6 @@ class fileSystem:
         for each in deleted_folder.FCB_children:
             self.file_delete(each)
             deleted_folder.FCB_children.remove(each)
-        pass
 
     def save_to_local(self):
         f = open(self.path, "wb")

@@ -36,7 +36,7 @@ class Main_window(QMainWindow):
         fileMenu = menu.addMenu("文件")
         fileMenu.addAction(QIcon('icon/create_file.png'), "新建文件", self.create_file)
         fileMenu.addAction(QIcon('icon/delete.png'), "删除文件", self.delete_file)
-        fileMenu.addAction(QIcon('icon/rename.png'), "重命名文件夹", self.rename_file)  # 改icon
+        fileMenu.addAction(QIcon('icon/rename.png'), "重命名文件", self.rename_file)  # 改icon
 
         folderMenu = menu.addMenu("文件夹")
         folderMenu.addAction(QIcon('icon/create_folder.png'), "新建文件夹", self.create_folder)
@@ -69,6 +69,9 @@ class Main_window(QMainWindow):
         vertical_2.addWidget(self.editor)
         vertical_2.addWidget(self.save_button)
         horizon_1.addLayout(vertical_2)
+
+        self.view_of_tree.setContextMenuPolicy(QtCore.Qt.ContextMenuPolicy.CustomContextMenu)
+        self.view_of_tree.customContextMenuRequested.connect(self.call_menu_right_click)
 
     def append_item(self, root: QStandardItem, src: file_manage_backend.folder):
         for each in src.folder_children:
@@ -103,8 +106,6 @@ class Main_window(QMainWindow):
         self.view_of_tree.setModel(self.build_model_for_tree())
         self.view_of_tree.expandAll()  # ?
         self.view_of_tree.selectionModel().currentChanged.connect(self.find_selected_one_click)
-        self.view_of_tree.setContextMenuPolicy(QtCore.Qt.ContextMenuPolicy.CustomContextMenu)
-        self.view_of_tree.customContextMenuRequested.connect(self.call_menu_right_click)
 
         self.view_of_tree.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
 
@@ -133,20 +134,24 @@ class Main_window(QMainWindow):
                 if every.folder_name == self.now_path[each]:
                     cursor = every
                     break
-
-        if (len(cursor.folder_children) - 1) < idx_in_folder and len(cursor.folder_children) != 0:
-            self.selected_file = cursor.FCB_children[idx_in_folder - len(cursor.folder_children)]
-            self.selected_folder = cursor
-            self.label_1.setText(self.selected_file.name + " 修改时间：" + str(
-                self.selected_file.update_time.strftime("%Y-%m-%d %H:%M:%S")))
+        if len(self.now_path) != 1:
+            if (len(cursor.folder_children) - 1) < idx_in_folder \
+                    and cursor.size() != 0:
+                self.selected_file = cursor.FCB_children[idx_in_folder - len(cursor.folder_children)]
+                self.selected_folder = cursor
+                self.label_1.setText(self.selected_file.name + " 修改时间：" + str(
+                    self.selected_file.update_time.strftime("%Y-%m-%d %H:%M:%S")))
+            else:
+                self.selected_file = None
+                if len(cursor.folder_children) != 0:
+                    self.selected_folder = cursor.folder_children[idx_in_folder]
+                    self.p_selected_folder = cursor
+                self.label_1.setText(self.selected_folder.folder_name + " 修改时间：" + str(
+                    self.selected_folder.update_time.strftime("%Y-%m-%d %H:%M:%S")))
         else:
             self.selected_file = None
-            if len(cursor.folder_children) != 0:
-                self.selected_folder = cursor.folder_children[idx_in_folder]
-                self.p_selected_folder = cursor
-            else:
-                self.selected_folder = self.file_manage.file_content.root
-                self.p_selected_folder = None
+            self.selected_folder = self.file_manage.file_content.root
+            self.p_selected_folder = None
             self.label_1.setText(self.selected_folder.folder_name + " 修改时间：" + str(
                 self.selected_folder.update_time.strftime("%Y-%m-%d %H:%M:%S")))
 
@@ -186,7 +191,7 @@ class Main_window(QMainWindow):
                 self.update_all()
 
     def create_folder(self):
-        new_name, ok = QInputDialog.getText(self, '新建文件夹', "请输入文件名称：")
+        new_name, ok = QInputDialog.getText(self, '新建文件夹', "请输入文件夹名称：")
         if ok:
             if new_name == "":
                 QMessageBox.warning(self, '错误！', "文件夹名不能为空！")
@@ -199,19 +204,22 @@ class Main_window(QMainWindow):
                 self.update_all()
 
     def delete_file(self):
-        ans = QMessageBox.question(self, '刪除文件', "您确定要删除吗？")
+        ans = QMessageBox.question(self, '删除文件', "您确定要删除吗？")
         if ans == QMessageBox.StandardButton.Yes:
             if self.selected_file is None:
                 QMessageBox.warning(self, '错误！', "您未选中任何文件！")
             else:
                 self.file_manage.file_delete(self.selected_file, self.selected_folder)
+                self.selected_file = None
                 self.update_all()
 
     def delete_folder(self):
-        ans = QMessageBox.question(self, '刪除文件夹', "您确定要删除吗？")
+        ans = QMessageBox.question(self, '删除文件夹', "您确定要删除吗？")
         if ans == QMessageBox.StandardButton.Yes:
             if self.selected_folder is None:
                 QMessageBox.warning(self, '错误！', "您未选中任何文件夹！")
+            elif self.selected_folder.folder_name == "/":
+                QMessageBox.warning(self, '错误！', "根文件夹不可删除！")
             else:
                 self.file_manage.delete_folder(self.selected_folder)
                 self.p_selected_folder.folder_children.remove(self.selected_folder)
@@ -224,14 +232,12 @@ class Main_window(QMainWindow):
                 QMessageBox.warning(self, '错误！', "文件夹名不能为空！")
             elif self.selected_folder is None:
                 QMessageBox.warning(self, '错误！', "请先选中要重命名的文件夹！")
-            elif new_name == (each.folder_name for each in self.selected_folder.folder_children):
-                QMessageBox.warning(self, '错误！', "已存在同名文件夹！")
             else:
                 self.file_manage.rename_folder(new_name, self.selected_folder, datetime.now())
                 self.update_all()
 
     def rename_file(self):
-        new_name, ok = QInputDialog.getText(self, '重命名文件', "请输入文件夹名称：")
+        new_name, ok = QInputDialog.getText(self, '重命名文件', "请输入文件名称：")
         if ok:
             if new_name == "":
                 QMessageBox.warning(self, '错误！', "文件名不能为空！")
@@ -251,7 +257,7 @@ class Main_window(QMainWindow):
         pass
 
     def format(self):
-        ans = QMessageBox.question(self, '格式化将会丢失所有数据', "您确定要格式化吗？")
+        ans = QMessageBox.question(self, '格式化', "此操作会丢失所有数据，您确定要格式化吗？")
         if ans == QMessageBox.StandardButton.Yes:
             self.file_manage.Format()
             self.selected_folder = self.file_manage.file_content.root
